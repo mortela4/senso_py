@@ -1,8 +1,7 @@
 """
-@file sensors.py
-================
-@brief Sensor super-class using a generic sensor base-class,
-constructed with parameter packs
+@file sensor_exp.py
+@brief Sensor class constructed using a given (sensor-)baseclass as argument,
+and using parameter packs for adding sensors.
 """
 
 import time
@@ -31,7 +30,7 @@ def get_uart_val():
     return 3
 
 
-# Base sensor class ...
+# Base sensor class no.1 ...
 class SensorBase:
     bus_property1 = {"i2c": "bus-address", "spi": "ChipSelect-number", "uart": "baud_rate"}
 
