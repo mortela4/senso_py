@@ -2,6 +2,18 @@
 @file sensor_exp.py
 @brief Sensor class constructed using a given (sensor-)baseclass as argument,
 and using parameter packs for adding sensors.
+Sensor base classes can be (for example) of type
+INTERNAL:
+- internal direct --> e.g. MCU/SoC-internal temp-sensor with digital reading
+  (need possibly only address of control&data-registers)
+- internal indirect --> e.g. internal ADC of SoC/MCU;
+  input may need adaptation & data must possibly be scaled
+EXTERNAL:
+- external generic --> e.g. SPI, I2C, UART, 1-wire, CAN-bus etc. (also MIPI/GreyBus)
+- external dedicated --> e.g. USB-device (typically) or FireWire-client
+  (access via device class-driver)
+In all, this yields a minimum of 2 generic base-classes (w. fields for distinction),
+or 4 base-classes that are more specialized.
 """
 
 import time
@@ -14,27 +26,50 @@ MAX_CS_VAL = 7
 MAX_I2C_ADDR = 127
 
 
+# For demo purposes:
+# ==================
+class ComplexValue:
+    def __init__(self, triggered=False, channel=-1, ch_val=0.0):
+        self.triggered = triggered
+        self.channel = channel
+        self.ch_val = ch_val
+
+
 # static functions - could as well be @staticmethod-decorated methods in 'Sensors' class.
+# =======================================================================================
+def configure_i2c_sensor(bus_no, addr):
+    print("Configuring I2C-sensor on bus no.%d, address=%d ..." % (bus_no, addr))
+
+
+def configure_spi_sensor(bus_no, cs_num):
+    print("Configuring SPI-sensor on bus no.%d, CS-num=%d..." % (bus_no, cs_num))
+
+
 def get_i2c_val():
     print("Getting I2C-sensor value ...")
-    return 1
+    # Returns a single value (which would typically be float-type):
+    return 1.12345
 
 
 def get_spi_val():
     print("Getting SPI-sensor value ...")
-    return 2
+    # Demonstrates returning a complex object:
+    return ComplexValue(True, 7, 8.765)
 
 
 def get_uart_val():
     print("Getting UART-sensor value ...")
-    return 3
+    # Demonstrate returning a list (of values), instead of a single value:
+    return [3, 4, 5]
 
 
-# Base sensor class no.1 ...
-class SensorBase:
+# Base sensor class no.1 (external sensors, connected to a bus)
+class ExternalSensorBase:
     bus_property1 = {"i2c": "bus-address", "spi": "ChipSelect-number", "uart": "baud_rate"}
 
-    def __init__(self, type_name=None, bus_no=None, dev_name=None, alias=None, read=None):
+    def __init__(self, type_name=None, bus_no=None, dev_name=None, alias=None, config=None, read=None):
+        #
+        self.config = config
         self.read = read
         # TODO: throw error if =None or negative (and possibly above some limit)!
         self.type_name = type_name
@@ -65,52 +100,119 @@ class SensorBase:
         print("Bus-specific properties:")
 
 
+# Base sensor class no.2 (MCU/SoC-internal sensors)
+class InternalSensorBase:
+
+    def __init__(self, type_name=None, dev_no=None, dev_addr=None, dev_name=None, use_irq=False, alias=None, read=None):
+        self.read = read
+        # TODO: throw error if =None or negative (and possibly above some limit)!
+        self.type_name = type_name
+        self.dev_no = dev_no
+        self.dev_addr = dev_addr   # Start of register-block for peripheral, e.g. ADC0, ADC1 etc.
+        if dev_name:
+            self.dev_name = dev_name
+        else:
+            self.dev_name = "none"
+        #
+        if alias:
+            self.alias = alias
+        else:
+            self.alias = "none"
+        #
+        self.use_irq = use_irq
+
+    def get_info(self):
+        if type is None:
+            print("Unknown sensor type - cannot show info!")
+            return
+        # INFO:
+        print("Internal sensor properties:")
+        print("---------------------------")
+        print("%Device no: %d" % self.dev_no)
+        print("Sensor alias: %s" % self.alias)
+        print("Device-specific properties:")
+        print("Device address: %x" % self.dev_addr)
+        print("Using IRQ: %s" % self.use_irq)
+
+
+# Types:
+internal_sensor_type = InternalSensorBase
+external_sensor_type = ExternalSensorBase
+
+
+def create_instance(class_type: type) -> object:
+    inst = class_type.__call__()
+    print("Instance info: " + repr(inst))
+    return inst
+
+
 # Bus-specific sensor classes ...
-class I2cSensor(SensorBase):
+class I2cSensor:
     global MAX_I2C_ADDR
 
-    def __init__(self, ppack=None):
+    def __init__(self, base_type=None, ppack=None):
         type_name, bus_no, i2c_addr, dev_name, alias = ppack
         if i2c_addr < 0 or i2c_addr > MAX_I2C_ADDR:
             raise ValueError("Invalid I2C-address specified!")
         self.i2c_addr = i2c_addr
-        super().__init__(type_name, bus_no,  dev_name, alias, read=get_i2c_val)
+        if base_type is None:
+            print("ERROR: 'base_type' NOT defined!")
+        self.base = base_type(type_name, bus_no, dev_name, alias, config=configure_i2c_sensor, read=get_i2c_val)
+        # Configure/Initialize sensor if needed:
+        if self.base.config is None:
+            print("No configuration/initialization of sensor specified - skipping.")
+        else:
+            self.base.config(self.base.bus_no, self.i2c_addr)
 
     def get_info(self):
-        super().get_info()
+        self.base.get_info()
         print("I2C-address: %d" % self.i2c_addr)
         print("")
 
 
-class SpiSensor(SensorBase):
+class SpiSensor:
     global MAX_CS_VAL
 
-    def __init__(self, ppack=None):
+    def __init__(self, base_type=None, ppack=None):
         type_name, bus_no, cs_no, dev_name, alias = ppack
         if cs_no < 0 or cs_no > MAX_CS_VAL:
             raise ValueError("Invalid CS-number specified!")
         self.cs_no = cs_no
-        super().__init__(type_name, bus_no, dev_name, alias, read=get_spi_val)
+        if base_type is None:
+            print("ERROR: 'base_type' NOT defined!")
+        self.base = base_type(type_name, bus_no, dev_name, alias,  config=configure_spi_sensor, read=get_spi_val)
+        # Configure/Initialize sensor if needed:
+        if self.base.config is None:
+            print("No configuration/initialization of sensor specified - skipping.")
+        else:
+            self.base.config(self.base.bus_no, self.cs_no)
 
     def get_info(self):
-        super().get_info()
+        self.base.get_info()
         print("SPI ChipSelect-num: %d" % self.cs_no)
         print("")
 
 
-class UartSensor(SensorBase):
+class UartSensor:
     global MIN_BAUD_RATE
     global MAX_BAUD_RATE
 
-    def __init__(self, ppack=None):
+    def __init__(self, base_type=None, ppack=None):
         type_name, bus_no, baud_rate, dev_name, alias = ppack
         if baud_rate < MIN_BAUD_RATE or baud_rate > MAX_BAUD_RATE:
             raise ValueError("Invalid baud-rate specified!")
         self.baud_rate = baud_rate
-        super().__init__(type_name, bus_no, dev_name, alias, read=get_uart_val)
+        if base_type is None:
+            print("ERROR: 'base_type' NOT defined!")
+        self.base = base_type(type_name, bus_no, dev_name, alias, read=get_uart_val)
+        # Configure/Initialize sensor if needed:
+        if self.base.config is None:
+            print("No configuration/initialization of sensor specified - skipping.")
+        else:
+            self.base.config(self.base.bus_no, self.cs_no)
 
     def get_info(self):
-        super().get_info()
+        self.base.get_info()
         print("UART baudrate: %d" % self.baud_rate)
         print("")
 
@@ -127,24 +229,24 @@ class Sensors:
         for i2c_sensor in i2c_sensors:
             if sensor.i2c_addr == i2c_sensor.i2c_addr:
                 print("ERROR validating I2C-sensor: address=%d already in use on bus#=%d!" %
-                      (sensor.i2c_addr, sensor.bus_no))
+                      (sensor.i2c_addr, sensor.base.bus_no))
                 return False
         return True
 
     def spi_validate(self, sensor):
         spi_sensors = self.get_spi_sensors()
         for spi_sensor in spi_sensors:
-            if sensor.bus_no == spi_sensor.bus_no and sensor.cs_no == spi_sensor.cs_no:
+            if sensor.base.bus_no == spi_sensor.base.bus_no and sensor.cs_no == spi_sensor.cs_no:
                 print("ERROR validating SPI-sensor: CS=%d already in use on bus#=%d!" %
-                      (sensor.cs_no, sensor.bus_no))
+                      (sensor.cs_no, sensor.base.bus_no))
                 return False
         return True
 
     def uart_validate(self, sensor):
         uart_sensors = self.get_uart_sensors()
         for uart_sensor in uart_sensors:
-            if sensor.bus_no == uart_sensor.bus_no:
-                print("ERROR validating UART-sensor: serialport=%d already in use!" % sensor.bus_no)
+            if sensor.base.bus_no == uart_sensor.base.bus_no:
+                print("ERROR validating UART-sensor: serialport=%d already in use!" % sensor.base.bus_no)
                 return False
         return True
 
@@ -155,9 +257,9 @@ class Sensors:
         sensor_creator = self.sensor_type_map[type]
         # Create sensor ...
         try:
-            sensor = sensor_creator(ppack)
+            sensor = sensor_creator(base_type=ExternalSensorBase, ppack=ppack)
             # Validating sensor instance BEFORE appending to list:
-            validator = validators[sensor.type_name]
+            validator = validators[sensor.base.type_name]
             if validator(sensor):
                 self.sensors.append(sensor)
             else:
@@ -182,39 +284,52 @@ class Sensors:
         print("Registered sensors:")
         print("===================")
         for idx, sensor in enumerate(self.sensors):
-            val = sensor.read()
-            print("Sensor no.%d: %s (type=%s) value = %d" % (idx, sensor.alias, sensor.dev_name, val))
+            val = sensor.base.read()
+            print("Sensor no.%d: %s (type=%s) value = %s" % (idx, sensor.base.alias, sensor.base.dev_name, val))
+            if type(val) is not float:
+                # Check if list or complex value:
+                if type(val) is list:
+                    print("Value list:")
+                    print("------------")
+                    for val_no, item_val in enumerate(val):
+                        print("Value no.%d = %d" % (val_no, item_val))
+                    print("")
+                else:
+                    if isinstance(val, ComplexValue):
+                        print("Complex value:")
+                        print("--------------")
+                        print("Triggered: ", val.triggered)
+                        print("Channel no: ", val.channel)
+                        print("Value: ", val.ch_val)
+                        print("")
+                    else:
+                        print("ERROR: cannot parse sensor readout result!")
 
     def get_sensor_data(self):
         """ Generator version of 'read_sensors()' which may be more usable. """
         for sensor in self.sensors:
-            sensor_val = sensor.read()
-            sensor_name = sensor.alias
+            sensor_val = sensor.base.read()
+            sensor_name = sensor.base.alias
             yield (sensor_name, sensor_val)  # use 'sdata_gen = sensors.get_sensor_data()' to obtain generator.
-
-    def make_sandwich(customers):
-        for customer in customers:
-            time.sleep(1)  # let's pretend this is the time it takes to make the sandwich
-            yield customer
 
     def get_i2c_sensors(self):
         i2c_sensors = []
         for sensor in self.sensors:
-            if sensor.type_name == "i2c":
+            if sensor.base.type_name == "i2c":
                 i2c_sensors.append(sensor)
         return i2c_sensors
 
     def get_spi_sensors(self):
         spi_sensors = []
         for sensor in self.sensors:
-            if sensor.type_name == "spi":
+            if sensor.base.type_name == "spi":
                 spi_sensors.append(sensor)
         return spi_sensors
 
     def get_uart_sensors(self):
         uart_sensors = []
         for sensor in self.sensors:
-            if sensor.type_name == "uart":
+            if sensor.base.type_name == "uart":
                 uart_sensors.append(sensor)
         return uart_sensors
 
@@ -238,7 +353,7 @@ if __name__ == "__main__":
     #
     # Alt1:
     sensors.read_sensors()
-    # Alt2:
+    # Alt2 (no special handling of list-data or ComplexValue-data here):
     print("Sensor data from dataset:")
     print("=========================")
     sdata = sensors.get_sensor_data()
