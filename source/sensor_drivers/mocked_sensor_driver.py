@@ -1,6 +1,5 @@
 
 
-
 # For demo purposes:
 # ==================
 class ComplexValue:
@@ -12,12 +11,18 @@ class ComplexValue:
 
 # static mock-up functions - could as well be @staticmethod-decorated methods in 'Sensors' class.
 # ===============================================================================================
-def configure_i2c_sensor(bus_no, addr):
-    print("MOCK: Configuring I2C-sensor on bus no.%d, address=%d ..." % (bus_no, addr))
+def configure_i2c_sensor(bus_no=None, i2c_addr=None):
+    if bus_no is None or i2c_addr is None:
+        print("Skipping config ...")
+    else:
+        print("MOCK: Configuring I2C-sensor on bus no.%d, address=%d ..." % (bus_no, i2c_addr))
 
 
-def configure_spi_sensor(bus_no, cs_num):
-    print("MOCK: Configuring SPI-sensor on bus no.%d, CS-num=%d..." % (bus_no, cs_num))
+def configure_spi_sensor(bus_no=None, cs_no=None):
+    if bus_no is None or cs_num is None:
+        print("Skipping config ...")
+    else:
+        print("MOCK: Configuring SPI-sensor on bus no.%d, CS-num=%d..." % (bus_no, cs_num))
 
 
 def get_i2c_val():
