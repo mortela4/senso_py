@@ -1,10 +1,8 @@
 """
-@file sensors_builder.py
+@file sensors_consolidated.py
 @brief Sensor class constructed using a given (sensor-)baseclass as argument,
-and using parameter packs for adding sensor *properties*,
-where only base-class properties are fixed, while device-specific attributes
-can be added by extending the subclass.
-Sensor *base* classes can be (for example) of type
+and using parameter packs for adding sensor *properties*.
+Sensor base classes can be (for example) of type
 INTERNAL:
 - internal direct --> e.g. MCU/SoC-internal temp-sensor with digital reading
   (need possibly only address of control&data-registers)
@@ -167,7 +165,6 @@ class I2cSensor(object):
             self.base.config(self.base.bus_no, self.i2c_addr)
 
     def get_info(self):
-        # TODO: how to print extended properties info!??!
         self.base.get_info()
         print("I2C-address: %d" % self.i2c_addr)
         print("")
@@ -190,7 +187,6 @@ class SpiSensor(object):
             self.base.config(self.base.bus_no, self.cs_no)
 
     def get_info(self):
-        # TODO: how to print extended properties info!??!
         self.base.get_info()
         print("SPI ChipSelect-num: %d" % self.cs_no)
         print("")
@@ -215,7 +211,6 @@ class UartSensor(object):
             self.base.config(self.base.bus_no, self.cs_no)
 
     def get_info(self):
-        # TODO: how to print extended properties info!??!
         self.base.get_info()
         print("UART baudrate: %d" % self.baud_rate)
         print("")
@@ -236,12 +231,12 @@ class SensorBuilder(object):
         existing_dev_props = self.sensor_obj.__dict__
         # Start with 'base' object = base class:
         if field_name not in existing_base_props:
-            print("Warning: field named '%s' - not in (base)class! Cannot extend class!!" % field_name)
+            print("Warning: field named '%s' - not in (base)class! Possibly extending class ..." % field_name)
             # Then device-specific props:
-            self.sensor_obj.__dict__[field_name] = field_value
             if field_name not in existing_dev_props:
                 print("Warning: field named '%s' - not in (sub)class! Possibly extending class ..." % field_name)
             else:
+                self.sensor_obj.__dict__[field_name] = field_value
                 print("Sensor-update: field named '%s' - updated with value=%s ..." % (field_name, field_value))
         else:
             self.sensor_obj.base.__dict__[field_name] = field_value
