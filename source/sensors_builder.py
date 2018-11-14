@@ -35,34 +35,6 @@ if MOCKED_DRIVER_TEST:
 else:
     from sensor_drivers.sensor_driver import *
 
-# Simple, static functions for sensor-READ&CONFIG:
-# ================================================
-
-"""
-
-def configure_i2c_sensor(bus_no=None, i2c_addr=None):
-    print("Configuring I2C-sensor with bus#: %s and address: %s..." % (bus_no, i2c_addr))
-
-
-def configure_spi_sensor(bus_no=None, cs_no=None):
-    print("Configuring SPI-sensor with bus#: %s and CS-num: %s..." % (bus_no, cs_no))
-
-
-def get_i2c_val():
-    print("Reading I2C-sensor ...")
-    return 5.555
-
-
-def get_spi_val():
-    print("Reading SPI-sensor ...")
-    return 7.777
-
-
-def get_uart_val():
-    print("Reading I2C-sensor ...")
-    return 3.1234
-"""
-
 
 class ExternalSensorBase:
     """
@@ -217,26 +189,19 @@ class SensorBuilder(object):
     Generic (almost ...) sensor builder.
     """
     def __init__(self, sensor_instance=None):
-        # print("SensorBuilder() running ...")
         self.sensor_obj = sensor_instance
-        # print("Created sensor object of type: %s" % repr(self.sensor_obj))
 
     def with_field(self, field_name, field_value):
         existing_base_props = self.sensor_obj.base.__dict__
         existing_dev_props = self.sensor_obj.__dict__
         # Start with 'base' object = base class:
         if field_name not in existing_base_props:
-            print("Warning: field named '%s' - not in (base)class! Cannot extend BASE class!!" % field_name)
             # Then device-specific props:
             self.sensor_obj.__dict__[field_name] = field_value
             if field_name not in existing_dev_props:
                 print("Warning: field named '%s' - not in (sub)class! Possibly extending class ..." % field_name)
-            else:
-                # print("Sensor-update: field named '%s' - updated with value=%s ..." % (field_name, field_value))
-                pass
         else:
             self.sensor_obj.base.__dict__[field_name] = field_value
-            # print("Sensor-BASE update: field named '%s' - updated with value=%s ..." % (field_name, field_value))
         #
         return self
 
@@ -247,13 +212,12 @@ class SensorBuilder(object):
 # *********************** SENSORS-CLASS ***********************
 
 # TODO: these lists should rather come from (JSON-)config or as globals from other module!
-# base_prop_list = ['bus_no', 'dev_name', 'alias']
 uart_prop_list = ['bus_no', 'baud_rate', 'dev_name', 'alias']
 spi_prop_list = ['bus_no', 'cs_no', 'dev_name', 'alias']
 i2c_prop_list = ['bus_no', 'i2c_addr', 'dev_name', 'alias']
 # TODO: same here ...
 sensor_type_map = {"i2c": I2cSensor, "spi": SpiSensor, "uart": UartSensor}
-
+prop_list_map = {"i2c": i2c_prop_list, "spi": spi_prop_list, "uart": uart_prop_list}
 
 class Sensors:
     """
@@ -296,46 +260,27 @@ class Sensors:
                   "'base_clsname' and 'ppack' parameters to be provided!")
             return None
         #
-        # print("Building sensor using class '%s' with base '%s' ..." % (sensor_clsname, base_clsname))
         raw_obj = sensor_clsname(base_type=base_clsname)
-        # print("Created raw sensor object: %s" % repr(raw_obj))
         sensor_builder = SensorBuilder(sensor_instance=raw_obj)
-        # print("Created sensor builder: %s" % repr(sensor_builder))
         #
         # Set up list of props:
-        prop_list = None
-        # TODO: strong coupling here! Bad design (?) ...
-        if raw_obj.type_name == "uart":
-            print("Using UART properties ...")
-            prop_list = uart_prop_list
-        elif raw_obj.type_name == "spi":
-            print("Using SPI properties ...")
-            prop_list = spi_prop_list
-        elif raw_obj.type_name == "i2c":
-            print("Using I2C properties ...")
-            prop_list = i2c_prop_list
-        else:
-            print("BUILDER ERROR: sensor is of UNKNOWN type!!")
-            # TODO: throw here! (e.g. 'ArgumentError' ??)
+        prop_list = prop_list_map[raw_obj.type_name]
         # Build sensor:
         tmp = None
         for idx, sensor_prop_name in enumerate(prop_list):
             field_val = ppack[idx]
-            # print("Building sensor with property %s = '%s'" % (sensor_prop_name, field_val))
             if idx == 0:
                 tmp = sensor_builder.with_field(sensor_prop_name, field_val)
             else:
                 tmp = tmp.with_field(sensor_prop_name, field_val)
         # Get final object:
         sensor = tmp.build()
-        # print("Built sensor: %s" % repr(sensor))
         #
         return sensor
 
     def add_sensor(self, ppack):
         validators = {"i2c": self.i2c_validate, "spi": self.spi_validate, "uart": self.uart_validate}
         sensor_type = ppack[0]
-        # print("Type: ", sensor_type)
         sensor_class_type = sensor_type_map[sensor_type]
         # Create sensor ...
         try:
@@ -343,7 +288,6 @@ class Sensors:
                                        base_clsname=ExternalSensorBase,
                                        ppack=ppack[1:])
             # Validating sensor instance BEFORE appending to list:
-            # print("Validating sensor properties ...")
             validator = validators[sensor.base.type_name]
             if validator(sensor):
                 self.sensors.append(sensor)
@@ -351,7 +295,6 @@ class Sensors:
                 raise Exception("Parameter ERROR: cannot add sensor to sensor-list!")
         except Exception as exc:
             print("ERROR creating sensor!!")
-            # print(sys.exc_info())
             print(exc.args)
 
     def list_sensors(self):
@@ -370,7 +313,6 @@ class Sensors:
         print("===================")
         for idx, sensor in enumerate(self.sensors):
             val = sensor.base.read()
-            print("Sensor no.%d: %s (type=%s) value = %s" % (idx, sensor.base.alias, sensor.base.dev_name, val))
             if type(val) is not float:
                 # Check if list or complex value:
                 if type(val) is list:
@@ -380,7 +322,6 @@ class Sensors:
                         print("Value no.%d = %d" % (val_no, item_val))
                     print("")
                 else:
-                    print("Reading sensor: complex value - cannot parse!")
                     if isinstance(val, ComplexValue):
                         print("Complex value:")
                         print("--------------")
@@ -390,6 +331,8 @@ class Sensors:
                         print("")
                     else:
                         print("ERROR: cannot parse sensor readout result!")
+            else:
+                print("Sensor no.%d: %s (type=%s) value = %s" % (idx, sensor.base.alias, sensor.base.dev_name, val))
 
     def get_sensor_data(self):
         """ Generator version of 'read_sensors()' which may be more usable. """
