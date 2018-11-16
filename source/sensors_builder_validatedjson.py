@@ -22,7 +22,7 @@ or 4 base-classes that are more specialized.
 
 import json
 # from collections import OrderedDict
-from jsonschema import Draft3Validator, validate, ValidationError
+from jsonschema import Draft4Validator, exceptions
 
 
 # TODO: add clk-speed(s) etc!
@@ -77,6 +77,52 @@ sensor_uart_schema = {
         "baud_rate": {"type": "integer"},
     },
 }
+
+# ******************* JSON-validation ************************
+
+class JsonValidator:
+    def __init__(self, schema=None, formal_check=True, debug=False):
+        self.schema = schema
+        self.formal_check = formal_check
+        self.debug = debug
+        if schema is None:
+            print("ERROR: cannot construct class correctly without schema argument given!!")
+        else:
+            self.validator = Draft4Validator(schema)
+
+    def check(self, json_input=None):
+        if json_input is None:
+            print("ERROR: no input to check!")
+            return False
+        # Check for required:
+        try:
+            self.validator.validate(json_input)
+        except exceptions.ValidationError:
+            for error in self.validator.iter_errors(json_input):
+                first_err_line = str(error).splitlines()[0]
+                prop_name = first_err_line.split()[0]
+                if first_err_line.endswith('required property'):
+                    print("JSON-validation ERROR: missing required property %s" % prop_name)
+                elif first_err_line.find('not of type') >= 0:
+                    print("JSON-validation ERROR: property %s has wrong type." % prop_name)
+                else:
+                    print("JSON-validation ERROR: %s" % first_err_line)
+            return False
+        #
+        if self.formal_check:
+            if self.validator.is_valid(json_input):
+                if self.debug:
+                    if self.debug:
+                        print("JSON has valid format.")
+            else:
+                print("ERROR: JSON input has invalid format!")
+                return False
+        if self.debug:
+            print("SUCCESS: JSON is valid! :-)")
+        return True
+
+
+# ***************************** Sensor BASE-classes ********************************
 
 class ExternalSensorBase:
     """
@@ -157,8 +203,22 @@ internal_sensor_type = InternalSensorBase
 external_sensor_type = ExternalSensorBase
 
 
+# Helper function(s) and class(es):
+
+class SensorHelper(object):
+    def get_info(self):
+        # First - get BASE sensor properties (common to ALL sensors):
+        self.base.get_info()
+        # Then - get DEVICE-SPECIFIC properties, (possibly) unique to the given sensor type(I2C/SPI/UART):
+        for sensor_prop, prop_value in self.__dict__.items():
+            if sensor_prop != 'base' and sensor_prop != 'type_name':
+                print("Sensor property %s = %s" % (sensor_prop, prop_value))
+
+
 # Bus-specific sensor classes ...
-class I2cSensor(object):
+
+
+class I2cSensor(SensorHelper):
 
     def __init__(self, base_type=None):
         print("Creating a I2C sensor ...")
@@ -173,14 +233,8 @@ class I2cSensor(object):
         else:
             self.base.config(self.base.bus_no, self.i2c_addr)
 
-    def get_info(self):
-        # TODO: how to print extended properties info!??!
-        self.base.get_info()
-        print("I2C-address: %d" % self.i2c_addr)
-        print("")
 
-
-class SpiSensor(object):
+class SpiSensor(SensorHelper):
 
     def __init__(self, base_type=None):
         print("Creating a SPI sensor ...")
@@ -195,14 +249,8 @@ class SpiSensor(object):
         else:
             self.base.config(self.base.bus_no, self.cs_no)
 
-    def get_info(self):
-        # TODO: how to print extended properties info!??!
-        self.base.get_info()
-        print("SPI ChipSelect-num: %d" % self.cs_no)
-        print("")
 
-
-class UartSensor(object):
+class UartSensor(SensorHelper):
 
     def __init__(self, base_type=None):
         print("Creating a UART sensor ...")
@@ -217,12 +265,6 @@ class UartSensor(object):
             print("No configuration/initialization of sensor specified - skipping.")
         else:
             self.base.config(self.base.bus_no, self.cs_no)
-
-    def get_info(self):
-        # TODO: how to print extended properties info!??!
-        self.base.get_info()
-        print("UART baudrate: %d" % self.baud_rate)
-        print("")
 
 
 # **************** SENSOR-BUILDER ********************
@@ -317,30 +359,32 @@ class Sensors:
         return sensor
 
     def add_sensor(self, json_spec):
+        # TODO: bring these dicts in from a config module or similar!
+        # Dictionaries for sensor-type-to-<mapped instance> mapping:
+        json_dev_schemas = {"i2c": sensor_i2c_schema, "spi": sensor_spi_schema, "uart": sensor_uart_schema}
         validators = {"i2c": self.i2c_validate, "spi": self.spi_validate, "uart": self.uart_validate}
         #
-        json_base_validator = Draft3Validator(sensor_base_schema)
-        json_dev_schemas = {"i2c": sensor_i2c_schema, "spi": sensor_spi_schema, "uart": sensor_uart_schema}
+        json_base_validator = JsonValidator(sensor_base_schema)
         #
         # Turn JSON-input into dictionary:
         sensor_spec = json.loads(json_spec)
         # Validate JSON:
-        if json_base_validator.is_valid(sensor_spec):
-            # DEBUG:
-            print("OK - good JSON ...")
+        if json_base_validator.check(sensor_spec):
+            # May log something for DEBUG-purposes here ...
+            pass
         else:
-            print("ERROR: invalid JSON input!")
+            print("ERROR: invalid sensor JSON input!")
             return
         #
         sensor_type = sensor_spec["sensor_type"]
         sensor_class_type = sensor_type_map[sensor_type]
         # Can validate device-specific JSON:
         json_dev_spec_schema = json_dev_schemas[sensor_type]
-        json_dev_spec_validator = Draft3Validator(json_dev_spec_schema)
+        json_dev_spec_validator = JsonValidator(json_dev_spec_schema)
         # Validate ...
-        if json_dev_spec_validator.is_valid(sensor_spec):
-            # DEBUG:
-            print("OK - good device-specific JSON ...")
+        if json_dev_spec_validator.check(sensor_spec):
+            # May log something for DEBUG-purposes here ...
+            pass
         else:
             print("ERROR: invalid device-specific JSON input!")
             return
@@ -502,13 +546,10 @@ if __name__ == "__main__":
         print(my_sensor.__dict__)
     #
     # Fails base-schema test:
-    sensors.add_sensor(json.dumps(
-        {"sensor_type": "i2c", "i2c_addr": 77, "clk_speed": 100000, "dev_name": "BM281",
-         "alias": "sensor2E"}))
+    sensors.add_sensor("""{"sensor_type": "i2c", "i2c_addr": 77, "clk_speed": 100000, "dev_name": "BM281","alias": "sensor2E"}""")
     # Fails devspec-schema test:
-    sensors.add_sensor(json.dumps(
-        {"sensor_type": "i2c", "bus_no": 2, "clk_speed": 100000, "dev_name": "BM281",
-         "alias": "sensor2F"}))
+    sensors.add_sensor("""{"sensor_type": "i2c", "bus_no": 2, "clk_speed": 100000, "dev_name": "BM281", "alias": "sensor2F"}""")
+
 
 
 
